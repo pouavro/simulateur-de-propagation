@@ -1,6 +1,6 @@
 import tkinter as tk
 import random 
-
+ 
 # ────────────── CONFIGURATION GLOBALE ──────────────
 # On fixe la taille du Canvas (zone de dessin) en pixels.
 # Elle ne changera jamais, même si on change le nombre de cases.
