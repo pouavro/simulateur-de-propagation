@@ -242,7 +242,7 @@ fenetre.mainloop()  # Boucle principale Tkinter
 ### propgation aux alentour des case rouge
 
 # fonction appelée au clic
-# def clic(event):
+# def clic(event): 
 #     col = event.x // TAILLE_CASE
 #     lig = event.y // TAILLE_CASE
 #     propagation()
