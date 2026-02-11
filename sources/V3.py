@@ -1,228 +1,169 @@
 import tkinter as tk
 import random
 
-# ────────────── Configuration Grand Écran ──────────────
-NB_CASES_COTE = 45   # Plus de cases pour remplir l'écran
-DENSITE_GRILLE = 0.85 # Pourcentage de l'écran occupé par la grille
+# ────────────── CONFIGURATION GLOBALE ──────────────
+CANVAS_SIZE = 700  # Taille de la fenêtre de dessin
+nb_cases = 20      # Taille par défaut (20x20)
+taille_case = CANVAS_SIZE / nb_cases
 
-class SimulateurPro:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Epidemic Simulator Pro - NSI Edition")
-        
-        # Force le mode plein écran ou une grande fenêtre 16:9
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-        
-        # On définit une taille large par défaut (ex: 1400x800)
-        win_w, win_h = 1400, 800
-        self.root.geometry(f"{win_w}x{win_h}")
-        self.root.configure(bg="#0f172a") # Bleu nuit très sombre
+# Dictionnaires globaux pour stocker les données
+etats = {}  # Stocke l'état : (ligne, col) -> "S", "I" ou "R"
+rects = {}  # Stocke l'objet graphique : (ligne, col) -> ID du carré
+auto_running = False
+confinement = False
 
-        # Calcul dynamique de la taille des cases
-        self.taille_case = (win_h * DENSITE_GRILLE) // NB_CASES_COTE
-        
-        self.auto_running = False
-        self.confinement = False
-        self.etats = {}
-        self.rects = {}
+# Couleurs
+COLORS = {'S': "#22c55e", 'I': "#ef4444", 'R': "#3b82f6"}
 
-        self.colors = {
-            'S': "#22c55e", # Vert flashy
-            'I': "#ef4444", # Rouge vif
-            'R': "#3b82f6", # Bleu néon
-            'V': "#475569"  # Ardoise (vide/vacciné)
-        }
+# ────────────── FONCTIONS DE LOGIQUE ──────────────
 
-        self.setup_layout()
-        self.reset_grille()
+def initialiser_grille():
+    """ Crée les carrés et remplit les dictionnaires """
+    global taille_case, auto_running
+    auto_running = False
+    btn_auto.config(text="LANCER SIMULATION", bg="#22c55e")
+    
+    canvas.delete("all")
+    etats.clear()
+    rects.clear()
+    
+    n = int(liste_taille.get()) # On récupère la taille choisie dans le menu
+    taille_case = CANVAS_SIZE / n
+    seuil_immune = slider_immune.get() / 100
+    
+    for l in range(n):
+        for c in range(n):
+            x1, y1 = c * taille_case, l * taille_case
+            x2, y2 = x1 + taille_case, y1 + taille_case
+            
+            # Tirage au sort de l'état initial
+            etat = 'R' if random.random() < seuil_immune else 'S'
+            
+            # Dessin
+            rect_id = canvas.create_rectangle(x1, y1, x2, y2, fill=COLORS[etat], outline="#0f172a")
+            
+            # Enregistrement
+            etats[(l, c)] = etat
+            rects[(l, c)] = rect_id
+    maj_stats()
 
-    def setup_layout(self):
-        # --- PANNEAU GAUCHE (LA GRILLE) ---
-        self.frame_left = tk.Frame(self.root, bg="#0f172a")
-        self.frame_left.pack(side="left", expand=True, fill="both", padx=20, pady=20)
+def propagation():
+    """ Calcule une étape de l'épidémie """
+    # Probabilité réduite si confinement actif
+    p_inf = slider_inf.get() / (3 if confinement else 1)
+    p_rec = slider_guerison.get()
+    
+    changements = {}
+    
+    # On cherche les malades
+    for coord, etat in etats.items():
+        if etat == 'I':
+            l, c = coord
+            # Voisinage de Moore (8 directions)
+            for dl, dc in [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]:
+                v = (l + dl, c + dc)
+                if v in etats and etats[v] == 'S':
+                    if random.random() < p_inf:
+                        changements[v] = 'I'
+            
+            # Guérison
+            if random.random() < p_rec:
+                changements[coord] = 'R'
+    
+    # Appliquer les changements
+    for coord, nouvel_etat in changements.items():
+        etats[coord] = nouvel_etat
+        canvas.itemconfig(rects[coord], fill=COLORS[nouvel_etat])
+    
+    maj_stats()
 
-        canvas_size = NB_CASES_COTE * self.taille_case
-        self.canvas = tk.Canvas(
-            self.frame_left, 
-            width=canvas_size, 
-            height=canvas_size, 
-            bg="#1e293b", 
-            highlightthickness=0
-        )
-        self.canvas.pack(expand=True)
+def maj_stats():
+    """ Met à jour le texte des scores """
+    liste_etats = list(etats.values())
+    s = liste_etats.count('S')
+    i = liste_etats.count('I')
+    r = liste_etats.count('R')
+    label_stats.config(text=f"SAINS: {s} | INFECTÉS: {i} | GUÉRIS: {r}")
 
-        # --- PANNEAU DROIT (PARAMÈTRES) ---
-        self.frame_right = tk.Frame(self.root, bg="#1e293b", width=350)
-        self.frame_right.pack(side="right", fill="y", padx=0, pady=0)
-        self.frame_right.pack_propagate(False) # Garde sa largeur de 350px
+# ────────────── GESTION DES ÉVÉNEMENTS ──────────────
 
-        # Titre stylé
-        tk.Label(
-            self.frame_right, text="DASHBOARD", 
-            font=("Impact", 28), fg="#f8fafc", bg="#1e293b"
-        ).pack(pady=30)
+def clic_canvas(event):
+    """ Infecte une case au clic """
+    l = int(event.y // taille_case)
+    c = int(event.x // taille_case)
+    if (l, c) in etats:
+        etats[(l, c)] = 'I'
+        canvas.itemconfig(rects[(l, c)], fill=COLORS['I'])
+        maj_stats()
 
-        # Conteneur pour les réglages (Padding interne)
-        self.controls = tk.Frame(self.frame_right, bg="#1e293b", padx=30)
-        self.controls.pack(fill="both")
+def toggle_auto():
+    global auto_running
+    auto_running = not auto_running
+    if auto_running:
+        btn_auto.config(text="STOPPER", bg="#ef4444")
+        boucle_simu()
+    else:
+        btn_auto.config(text="LANCER SIMULATION", bg="#22c55e")
 
-        # Sliders avec style
-        self.slider_immune = self.create_styled_slider("Immunité Pop. (%)", 0, 100, 15)
-        self.slider_inf = self.create_styled_slider("Taux de contagion", 0, 1, 0.4, res=0.01)
-        self.slider_guerison = self.create_styled_slider("Vitesse de guérison", 0, 1, 0.1, res=0.01)
+def boucle_simu():
+    if auto_running:
+        propagation()
+        fenetre.after(50, boucle_simu)
 
-        # Espace
-        tk.Frame(self.controls, height=20, bg="#1e293b").pack()
+def toggle_confinement():
+    global confinement
+    confinement = not confinement
+    btn_conf.config(text="CONFINEMENT: ON" if confinement else "CONFINEMENT: OFF", 
+                    bg="#ef4444" if confinement else "#f59e0b")
 
-        # Boutons larges
-        self.btn_auto = self.create_btn("LANCER SIMULATION", "#22c55e", self.toggle_auto)
-        self.btn_step = self.create_btn("ÉTAPE SUIVANTE", "#3b82f6", self.propagation)
-        self.btn_conf = self.create_btn("CONFINEMENT : OFF", "#f59e0b", self.toggle_confinement)
-        self.create_btn("RESET", "#ef4444", self.reset_grille)
+# ────────────── INTERFACE GRAPHIQUE ──────────────
 
-        # Stats en bas
-        self.stats_label = tk.Label(
-            self.frame_right, text="", font=("Consolas", 12), 
-            fg="#94a3b8", bg="#1e293b", justify="left"
-        )
-        self.stats_label.pack(side="bottom", pady=40)
+fenetre = tk.Tk()
+fenetre.title("Simulateur Épidémie - NSI")
+fenetre.geometry("1100x750")
+fenetre.configure(bg="#0f172a")
 
-    def create_styled_slider(self, txt, mini, maxi, dft, res=1):
-        tk.Label(self.controls, text=txt, fg="#94a3b8", bg="#1e293b", font=("Arial", 10, "bold")).pack(anchor="w")
-        s = tk.Scale(
-            self.controls, from_=mini, to=maxi, resolution=res, 
-            orient="horizontal", bg="#1e293b", fg="white", 
-            highlightthickness=0, troughcolor="#334155", activebackground="#3b82f6"
-        )
-        s.set(dft)
-        s.pack(fill="x", pady=(0, 15))
-        return s
+# Canvas à gauche
+canvas = tk.Canvas(fenetre, width=CANVAS_SIZE, height=CANVAS_SIZE, bg="#1e293b", highlightthickness=0)
+canvas.pack(side="left", padx=10, pady=10)
+canvas.bind("<Button-1>", clic_canvas)
 
-    def create_btn(self, txt, color, cmd):
-        btn = tk.Button(
-            self.controls, text=txt, command=cmd, bg=color, fg="white",
-            font=("Arial", 11, "bold"), relief="flat", pady=10, cursor="hand2"
-        )
-        btn.pack(fill="x", pady=5)
-        return btn
+# Menu à droite
+menu = tk.Frame(fenetre, bg="#1e293b", padx=20)
+menu.pack(side="right", fill="both", expand=True)
 
-    def reset_grille(self):
-        self.canvas.delete("all")
-        self.etats.clear()
-        self.rects.clear()
-        
-        seuil = self.slider_immune.get() / 100
-        for i in range(NB_CASES_COTE):
-            for j in range(NB_CASES_COTE):
-                x1, y1 = j * self.taille_case, i * self.taille_case
-                etat = 'R' if random.random() < seuil else 'S'
-                
-                r = self.canvas.create_rectangle(
-                    x1, y1, x1+self.taille_case-1, y1+self.taille_case-1, 
-                    fill=self.colors[etat], outline="#0f172a"
-                )
-                self.etats[(i, j)] = etat
-                self.rects[(i, j)] = r
-        self.maj_stats()
+# Sélecteur de taille
+tk.Label(menu, text="TAILLE DE LA GRILLE", fg="white", bg="#1e293b").pack(pady=5)
+liste_taille = tk.StringVar(value="20")
+selecteur = tk.OptionMenu(menu, liste_taille, "10", "20", "50", command=lambda _: initialiser_grille())
+selecteur.pack(fill="x", pady=5)
 
-    def propagation(self):
-        p_inf = self.slider_inf.get() / (3 if self.confinement else 1)
-        p_rec = self.slider_guerison.get()
-        
-        nouveaux = self.etats.copy()
-        # Voisinage de Moore
-        v_coords = [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]
+# Sliders
+slider_immune = tk.Scale(menu, from_=0, to=100, label="Immunité initiale %", orient="horizontal", bg="#1e293b", fg="white")
+slider_immune.set(15)
+slider_immune.pack(fill="x")
 
-        for (l, c), etat in self.etats.items():
-            if etat == 'I':
-                for dl, dc in v_coords:
-                    nc = (l+dl, c+dc)
-                    if nc in self.etats and self.etats[nc] == 'S':
-                        if random.random() < p_inf: nouveaux[nc] = 'I'
-                if random.random() < p_rec: nouveaux[(l, c)] = 'R'
+slider_inf = tk.Scale(menu, from_=0, to=1, resolution=0.01, label="Taux d'infection", orient="horizontal", bg="#1e293b", fg="white")
+slider_inf.set(0.4)
+slider_inf.pack(fill="x")
 
-        for coord, etat in nouveaux.items():
-            if etat != self.etats[coord]:
-                self.canvas.itemconfig(self.rects[coord], fill=self.colors[etat])
-                self.etats[coord] = etat
-        self.maj_stats()
+slider_guerison = tk.Scale(menu, from_=0, to=1, resolution=0.01, label="Taux de guérison", orient="horizontal", bg="#1e293b", fg="white")
+slider_guerison.set(0.1)
+slider_guerison.pack(fill="x")
 
-    def toggle_auto(self):
-        self.auto_running = not self.auto_running
-        self.btn_auto.config(text="STOPPER" if self.auto_running else "LANCER SIMULATION",
-                             bg="#ef4444" if self.auto_running else "#22c55e")
-        if self.auto_running: self.run_loop()
+# Boutons
+btn_auto = tk.Button(menu, text="LANCER SIMULATION", bg="#22c55e", fg="white", command=toggle_auto)
+btn_auto.pack(fill="x", pady=5)
 
-    def run_loop(self):
-        if self.auto_running:
-            self.propagation()
-            self.root.after(100, self.run_loop)
+tk.Button(menu, text="ÉTAPE PAR ÉTAPE", command=propagation).pack(fill="x", pady=5)
 
-    def toggle_confinement(self):
-        self.confinement = not self.confinement
-        self.btn_conf.config(text="CONFINEMENT : ON" if self.confinement else "CONFINEMENT : OFF",
-                             bg="#ef4444" if self.confinement else "#f59e0b")
+btn_conf = tk.Button(menu, text="CONFINEMENT: OFF", bg="#f59e0b", fg="white", command=toggle_confinement)
+btn_conf.pack(fill="x", pady=5)
 
-    def maj_stats(self):
-        val = list(self.etats.values())
-        txt = f"Sains     : {val.count('S')}\n"
-        txt += f"Infectés  : {val.count('I')}\n"
-        txt += f"Immunisés : {val.count('R')}"
-        self.stats_label.config(text=txt)
+tk.Button(menu, text="RELIRE / RESET", bg="#ef4444", fg="white", command=initialiser_grille).pack(fill="x", pady=5)
 
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = SimulateurPro(root)
-    root.mainloop()
+label_stats = tk.Label(menu, text="", fg="white", bg="#1e293b", font=("Arial", 12))
+label_stats.pack(side="bottom", pady=20)
 
-
-
-
-# def propagation():
-#     global nombre_de_simulations
-#     nombre_de_simulations += 1
-#     print(f"--- Simulation n°{nombre_de_simulations} ---")
-#     if auto_running == False:
-#         for infecte in list(cases_infectees.keys()):
-#             lig, col = infecte
-#             for dx, dy in directions:
-#                 nl = lig + dx
-#                 nc = col + dy
-#                 if (nl, nc) in cases:
-#                     if random.random() < prob1 and (nl, nc) in cases_soignees:
-#                         canvas.itemconfig(cases[(nl, nc)], fill="#bc4749")
-#                         cases_infectees[(nl, nc)] = cases[(nl, nc)]
-#                         del cases_soignees[(nl, nc)]
-#     else:
-#          for infecte in list(cases_infectees.keys()):
-#             lig, col = infecte
-#             for dx, dy in directions:
-#                 nl = lig + dx
-#                 nc = col + dy
-#                 if (nl, nc) in cases:
-#                     ...
-#                     if random.random() < prob1:
-#                         canvas.itemconfig(cases[(nl, nc)], fill="#bc4749")
-#                         cases_infectees[(nl, nc)] = cases[(nl, nc)]
-#                         del cases_soignees[(nl, nc)]
-
-
-### propgation aux alentour des case rouge
-
-# fonction appelée au clic
-# def clic(event):
-#     col = event.x // TAILLE_CASE
-#     lig = event.y // TAILLE_CASE
-#     propagation()
-
-#     for dx, dy in directions:
-#         nl = lig + dx
-#         nc = col + dy
-
-#         if (nl, nc) in cases:
-                
-#             if random.random() < prob1 and (nl, nc) in cases_soignees:
-#                 canvas.itemconfig(cases[(nl, nc)], fill="#bc4749")
-#                 cases_infectees[(nl, nc)] = cases[(nl, nc)]
-#                 del cases_soignees[(nl, nc)]
+initialiser_grille()
+fenetre.mainloop()
