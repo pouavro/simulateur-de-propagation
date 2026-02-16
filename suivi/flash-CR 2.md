@@ -1,4 +1,4 @@
-## compte rendu 16/02/2026
+## compte rendu 13/02/2026
 ilan : gestion du giuthub
 
 lucas : codage de la version carré du project de simulation. ajout de variable .
