@@ -1,5 +1,10 @@
 ## compte rendu 16/02/2026
-ilan : 
+ilan : mainV4 et mainV6:
+-passage de l'infection par le sol à l'infection par contact
+-création des hitboxes dynamiques (bleu/rose)
+-développement des fonctions outils (tuer, infecter, collision)
+-intégration de la mortalité par tour
+-merge de mainv4 et mainv5 en mainV6.
 
 lucas : 
 mainV5, ajouts:
