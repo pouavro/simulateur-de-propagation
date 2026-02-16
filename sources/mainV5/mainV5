@@ -1,0 +1,232 @@
+import tkinter as tk
+import random
+
+# ────────────── PARAMÈTRES INITIAUX ──────────────
+TAILLE_GRILLE = 25   
+TAILLE_CASE = 25     
+PROB_SAIN_DEPART = 0.7  
+NB_PERSONNAGES = 15   
+PROB_PERSO_IMMUNE = 0.3 
+
+auto_running = False
+
+COLORS = {
+    'S': "#a7c957", # Sain
+    'I': "#bc4749", # Infecté
+    'F': "#f4f1de"  # Vide
+}
+
+# ────────────── FENÊTRE ──────────────
+fenetre = tk.Tk()
+fenetre.title("Laboratoire Épidémique NSI")
+largeur_canvas = TAILLE_GRILLE * TAILLE_CASE
+fenetre.geometry(f"{largeur_canvas + 400}x{largeur_canvas + 100}")
+fenetre.configure(bg="#2c4260")
+
+# ────────────── PANNEAU DROITE (PARAMÈTRES) ──────────────
+frame_param = tk.Frame(fenetre, bg="#1d2b3e")
+frame_param.pack(side="right", fill="both", expand=True)
+
+tk.Label(frame_param, text="CONFIGURATEUR", font=("Impact", 24), bg="#1d2b3e", fg="#ffffff").pack(pady=10)
+
+# --- 1. CURSEUR : CONTAGION CASES ---
+tk.Label(frame_param, text="Propagation Virus (Cases) %", font=("Arial", 10, "bold"), bg="#1d2b3e", fg="#ffffff").pack(pady=(10, 0))
+curseur_infection = tk.Scale(frame_param, from_=0, to=100, orient="horizontal", bg="#1d2b3e", fg="#ffffff", highlightthickness=0, length=250)
+curseur_infection.set(30)
+curseur_infection.pack()
+
+# --- 2. CURSEUR : VITESSE PERSOS ---
+tk.Label(frame_param, text="Vitesse Déplacement Persos %", font=("Arial", 10, "bold"), bg="#1d2b3e", fg="#ffffff").pack(pady=(10, 0))
+curseur_vitesse = tk.Scale(frame_param, from_=0, to=100, orient="horizontal", bg="#1d2b3e", fg="#ffffff", highlightthickness=0, length=250)
+curseur_vitesse.set(50)
+curseur_vitesse.pack()
+
+# --- 3. CURSEUR : TRANSMISSION PERSOS ---
+tk.Label(frame_param, text="Capacité d'Infection Persos %", font=("Arial", 10, "bold"), bg="#1d2b3e", fg="#ffffff").pack(pady=(10, 0))
+curseur_trans_perso = tk.Scale(frame_param, from_=0, to=100, orient="horizontal", bg="#1d2b3e", fg="#ffffff", highlightthickness=0, length=250)
+curseur_trans_perso.set(80)
+curseur_trans_perso.pack()
+
+label_stats = tk.Label(frame_param, text="", font=("Arial", 11), bg="#1d2b3e", fg="#ffffff", justify="left")
+label_stats.pack(pady=20)
+
+# ────────────── CANVAS ──────────────
+canvas = tk.Canvas(fenetre, width=largeur_canvas, height=largeur_canvas, bg="#778DA9", highlightthickness=0)
+canvas.pack(side="left", padx=10, pady=10)
+
+try:
+    img_bonhomme = tk.PhotoImage(file="perso 1.png")
+    img_bonhomme = img_bonhomme.subsample(max(1, img_bonhomme.width() // 20)) 
+except:
+    img_bonhomme = None
+
+# ────────────── DONNÉES ──────────────
+etats = {}           
+rects = {}           
+bonhommes = {}       
+stats_persos = {}    
+
+# ────────────── FONCTIONS ──────────────
+
+def maj_stats():
+    vals = list(etats.values())
+    s, i = vals.count('S'), vals.count('I')
+    p_vals = list(stats_persos.values())
+    m_p, i_p = p_vals.count("infecte"), p_vals.count("immune")
+    label_stats.config(text=f"CASES SAINES : {s}\nCASES INFECTÉES : {i}\n\n"
+                            f"PERSOS MALADES : {m_p}\n"
+                            f"PERSOS IMMUNISÉS : {i_p}")
+
+def starting_grid():
+    global auto_running
+    auto_running = False
+    canvas.delete("all")
+    etats.clear(); rects.clear(); bonhommes.clear(); stats_persos.clear()
+    btn_auto.config(text="AUTO", bg="#394867")
+
+    for l in range(TAILLE_GRILLE):
+        for c in range(TAILLE_GRILLE):
+            x1, y1 = c * TAILLE_CASE, l * TAILLE_CASE
+            etat = 'S' if random.random() < PROB_SAIN_DEPART else 'F'
+            r = canvas.create_rectangle(x1, y1, x1+TAILLE_CASE, y1+TAILLE_CASE, 
+                                        fill=COLORS[etat] if etat=='S' else COLORS['F'], outline="#394867")
+            rects[(l, c)] = r
+            etats[(l, c)] = etat
+
+    for _ in range(NB_PERSONNAGES):
+        l, c = random.randint(0, TAILLE_GRILLE-1), random.randint(0, TAILLE_GRILLE-1)
+        x, y = c * TAILLE_CASE + TAILLE_CASE//2, l * TAILLE_CASE + TAILLE_CASE//2
+        obj = canvas.create_image(x, y, image=img_bonhomme)
+        bonhommes[(l, c)] = obj
+        stats_persos[obj] = "immune" if random.random() < PROB_PERSO_IMMUNE else "sain"
+    
+    maj_stats()
+
+def deplacer_bonhommes():
+    global bonhommes
+    nouveaux = {}
+    vitesse_prob = curseur_vitesse.get() / 100
+    trans_prob = curseur_trans_perso.get() / 100
+
+    for (l, c), obj in bonhommes.items():
+        # Le personnage ne bouge que si le test de vitesse réussit
+        if random.random() < vitesse_prob:
+            dx, dy = random.choice([(-1,0), (1,0), (0,-1), (0,1)]) # On bouge forcément si on bouge
+        else:
+            dx, dy = 0, 0 # Reste sur place
+
+        nl, nc = l + dx, c + dy
+        
+        if 0 <= nl < TAILLE_GRILLE and 0 <= nc < TAILLE_GRILLE and (nl, nc) not in nouveaux:
+            canvas.coords(obj, nc*TAILLE_CASE + TAILLE_CASE//2, nl*TAILLE_CASE + TAILLE_CASE//2)
+            
+            statut = stats_persos[obj]
+            if statut == "sain" and etats[(nl, nc)] == 'I':
+                stats_persos[obj] = "infecte"
+            elif statut == "infecte" and etats[(nl, nc)] == 'S':
+                # Utilisation du curseur de transmission des personnages
+                if random.random() < trans_prob:
+                    etats[(nl, nc)] = 'I'
+                    canvas.itemconfig(rects[(nl, nc)], fill=COLORS['I'])
+            
+            nouveaux[(nl, nc)] = obj
+        else:
+            nouveaux[(l, c)] = obj
+    bonhommes = nouveaux
+
+def propagation():
+    deplacer_bonhommes()
+    taux_actuel = curseur_infection.get() / 100
+    changements = {}
+    for (l, c), etat in etats.items():
+        if etat == 'I':
+            for dl, dc in [(-1,0), (1,0), (0,-1), (0,1)]:
+                v = (l + dl, c + dc)
+                if v in etats and etats[v] == 'S' and random.random() < taux_actuel:
+                    changements[v] = 'I'
+
+    for coord, nouvel_etat in changements.items():
+        etats[coord] = nouvel_etat
+        canvas.itemconfig(rects[coord], fill=COLORS[nouvel_etat])
+    maj_stats()
+
+def boucle_auto():
+    if auto_running:
+        propagation()
+        fenetre.after(150, boucle_auto) 
+
+def toggle_auto():
+    global auto_running
+    auto_running = not auto_running
+    btn_auto.config(text="STOP" if auto_running else "AUTO", bg="#ef4444" if auto_running else "#394867")
+    if auto_running: boucle_auto()
+
+def clic(event):
+    l, c = event.y // TAILLE_CASE, event.x // TAILLE_CASE
+    if (l, c) in etats:
+        etats[(l, c)] = 'I'
+        canvas.itemconfig(rects[(l, c)], fill=COLORS['I'])
+        if (l, c) in bonhommes:
+            obj = bonhommes[(l, c)]
+            if stats_persos[obj] == "sain": stats_persos[obj] = "infecte"
+        maj_stats()
+
+# ────────────── INTERFACE ──────────────
+frame_btns = tk.Frame(frame_param, bg="#1d2b3e")
+frame_btns.pack(pady=10)
+tk.Button(frame_btns, text="Reset", command=starting_grid).pack(side="left", padx=5)
+tk.Button(frame_btns, text="Simuler", command=propagation).pack(side="left", padx=5)
+btn_auto = tk.Button(frame_btns, text="AUTO", command=toggle_auto)
+btn_auto.pack(side="left", padx=5)
+
+canvas.bind("<Button-1>", clic)
+starting_grid()
+fenetre.mainloop()
+
+# def propagation():
+#     global nombre_de_simulations
+#     nombre_de_simulations += 1
+#     print(f"--- Simulation n°{nombre_de_simulations} ---")
+#     if auto_running == False:
+#         for infecte in list(cases_infectees.keys()):
+#             lig, col = infecte
+#             for dx, dy in directions:
+#                 nl = lig + dx
+#                 nc = col + dy
+#                 if (nl, nc) in cases:
+#                     if random.random() < prob1 and (nl, nc) in cases_soignees:
+#                         canvas.itemconfig(cases[(nl, nc)], fill="#bc4749")
+#                         cases_infectees[(nl, nc)] = cases[(nl, nc)]
+#                         del cases_soignees[(nl, nc)]
+#     else:
+#          for infecte in list(cases_infectees.keys()):
+#             lig, col = infecte
+#             for dx, dy in directions:
+#                 nl = lig + dx
+#                 nc = col + dy
+#                 if (nl, nc) in cases:
+#                     ...
+#                     if random.random() < prob1:
+#                         canvas.itemconfig(cases[(nl, nc)], fill="#bc4749")
+#                         cases_infectees[(nl, nc)] = cases[(nl, nc)]
+#                         del cases_soignees[(nl, nc)]
+
+
+### propgation aux alentour des case rouge
+
+# fonction appelée au clic
+# def clic(event):
+#     col = event.x // TAILLE_CASE
+#     lig = event.y // TAILLE_CASE
+#     propagation()
+
+#     for dx, dy in directions:
+#         nl = lig + dx
+#         nc = col + dy
+
+#         if (nl, nc) in cases:
+                
+#             if random.random() < prob1 and (nl, nc) in cases_soignees:
+#                 canvas.itemconfig(cases[(nl, nc)], fill="#bc4749")
+#                 cases_infectees[(nl, nc)] = cases[(nl, nc)]
+#                 del cases_soignees[(nl, nc)]
